@@ -5,6 +5,8 @@ import pickle
 import os
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.metrics import roc_curve, auc
+from sklearn.preprocessing import label_binarize
 
 # ═══════════════════════════════════════════════════════════════
 # 1. CONFIGURACIÓN DE LA PÁGINA
@@ -12,16 +14,15 @@ import plotly.graph_objects as go
 st.set_page_config(
     page_title="IA Predictor: Mundial 2026",
     layout="wide",
-    page_icon="🏆"
+    page_icon="https://cdn-icons-png.flaticon.com/512/188/188905.png"
 )
-
 # ── Paleta de diseño global ──
 COLORS = {
     'bg':         '#0F1117',
     'card_bg':    '#1A1D2E',
     'accent':     '#6366F1',   # Indigo-500
     'accent2':    '#8B5CF6',   # Violet-500
-    'success':    '#10B981',   # Emerald-500
+    'success':    "#00bc7d",   # Emerald-500
     'danger':     '#EF4444',   # Red-500
     'text':       '#E2E8F0',
     'text_muted': '#94A3B8',
@@ -42,16 +43,21 @@ BAR_COLORSCALE = [
 # ── CSS personalizado para Streamlit ──
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&display=swap');
 
-html, body, [class*="st-"] {
-    font-family: 'Inter', sans-serif;
-}
+html, body, [data-testid="stAppViewContainer"], .stMarkdown, p, h1, h2, h3, h4, h5, h6 {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        }
 
 .main .block-container {
     padding-top: 1.5rem;
     max-width: 1200px;
 }
+
+h1, h2, h3 {
+            font-weight: 700 !important;
+            letter-spacing: -0.02em !important;
+        }
 
 h1 {
     background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #A78BFA 100%);
@@ -173,13 +179,26 @@ flags = {
 @st.cache_resource
 def cargar_datos_torneo():
     try:
-        with open('datos_torneo.pkl', 'rb') as f:
+        with open('model/datos_torneo.pkl', 'rb') as f:
             return pickle.load(f)
     except Exception as e:
         st.error(f"Error crítico cargando datos_torneo.pkl: {e}")
         return None
 
 datos_torneo = cargar_datos_torneo()
+TECH_LOAD_CODE = """
+@st.cache_resource
+def cargar_tech_data():
+    try:
+        with open('tech_data.pkl', 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        st.error(f"Error cargando tech_data.pkl: {e}")
+        return None
+ 
+tech_data = cargar_tech_data()
+"""
+ 
 
 # ═══════════════════════════════════════════════════════════════
 # HELPERS — Layout profesional para gráficas
@@ -242,7 +261,7 @@ st.sidebar.markdown('<div class="sidebar-gradient-line"></div>', unsafe_allow_ht
 
 seccion = st.sidebar.radio(
     "Ir a la fase:",
-    ["📊 Fase de Grupos", "⚔️ Simulador de Rondas KO"],
+    ["📊 Fase de Grupos", "⚔️ Simulador de Rondas KO", "🔬 Análisis del Modelo"],
     key="menu_plotly_guapo"
 )
 
@@ -252,17 +271,15 @@ st.sidebar.markdown("##### 🔬 ML Pipeline")
 st.sidebar.markdown("""
 <div style="margin-top:8px;">
     <span class="tech-badge" style="background:rgba(99,102,241,0.15); color:#818CF8;">XGBoost</span>
-    <span class="tech-badge" style="background:rgba(16,185,129,0.15); color:#10B981;">ELO Rating</span>
-    <span class="tech-badge" style="background:rgba(139,92,246,0.15); color:#A78BFA;">Monte Carlo</span>
+    <span class="tech-badge" style="background:rgba(16,185,129,0.15); color:#10B981;">MCTS</span>
+    <span class="tech-badge" style="background:rgba(139,92,246,0.15); color:#A78BFA;">Feature Engineering</span>
     <span class="tech-badge" style="background:rgba(245,158,11,0.15); color:#F59E0B;">Pandas</span>
     <span class="tech-badge" style="background:rgba(239,68,68,0.15); color:#F87171;">Scikit-learn</span>
     <span class="tech-badge" style="background:rgba(56,189,248,0.15); color:#38BDF8;">Plotly</span>
 </div>
 <div style="margin-top:14px; font-size:11px; color:#94A3B8; line-height:1.6;">
     <b style="color:#CBD5E1;">Feature Engineering</b><br>
-    ELO diferencial · Forma reciente · Head-to-head · Home advantage · Ranking FIFA<br><br>
-    <b style="color:#CBD5E1;">Validación</b><br>
-    Stratified K-Fold (k=5) · Class balancing con SMOTE · Calibración Platt
+    ELO · Market Value · Momentum · Pressure Index · Knockout Performance <br><br>
 </div>
 """, unsafe_allow_html=True)
 
@@ -400,7 +417,7 @@ if seccion == "📊 Fase de Grupos" and datos_torneo is not None:
 # ═══════════════════════════════════════════════════════════════
 elif seccion == "⚔️ Simulador de Rondas KO" and datos_torneo is not None:
     st.header("⚔️ Cruces de Eliminación Directa")
-    st.caption("Probabilidad de avance calculada por modelo XGBoost + ELO")
+    st.caption("Probabilidad de avance calculada por modelo XGBoost + MCTS")
 
     fase = st.selectbox("Selecciona la Ronda:", [
         "Dieciseisavos de Final", "Octavos de Final", "Cuartos de Final",
@@ -423,8 +440,6 @@ elif seccion == "⚔️ Simulador de Rondas KO" and datos_torneo is not None:
     else:
         partidos = datos_torneo.get('final', None)
         ganadores_data = datos_torneo.get('pase_final', {})
-
-    st.markdown(f"### 🏟️ {fase}")
 
     # ─── Prefijo de ronda ───
     fase_prefijos = {
@@ -550,7 +565,7 @@ elif seccion == "⚔️ Simulador de Rondas KO" and datos_torneo is not None:
         tick_text = ['80%', '60%', '40%', '20%', '·', '20%', '40%', '60%', '80%']
 
         fig.update_layout(**_base_layout(
-            title_text=f'<b>{fase}</b>  ·  Análisis de Probabilidades Face-Off',
+            title_text=f'<b>{fase}</b>  ·  Análisis de Probabilidades',
             height=max(380, n * 72 + 120),
             barmode='relative',
             bargap=0.28,
@@ -788,6 +803,420 @@ elif seccion == "⚔️ Simulador de Rondas KO" and datos_torneo is not None:
                 "💪 Mayor favorito",
                 f"{flags.get(ganador_claro,'')} {ganador_claro}",
                 f"Δ {widest:.1f}pp"
-            )
+            )       
     else:
         st.warning("No se encontraron partidos o datos válidos para esta ronda.")
+# ═══════════════════════════════════════════════════════════════
+# SECCIÓN 3: ANÁLISIS DEL MODELO
+# ═══════════════════════════════════════════════════════════════
+elif seccion == "🔬 Análisis del Modelo":
+    # Primero intentamos cargar tech_data.pkl de forma segura
+    try:
+        with open('model/tech_data.pkl', 'rb') as f:
+            tech_data = pickle.load(f)
+    except Exception as e:
+        st.error(f"Error cargando tech_data.pkl: {e}")
+        tech_data = None
+
+    if tech_data is not None:
+        st.header("🔬 Análisis Técnico del Modelo")
+        st.caption("XGBoost · Balanced class weights · 5 features · entrenado con 5.011 partidos (2010–2025)")
+     
+        # ─── MÉTRICAS RÁPIDAS ───
+        st.markdown("### 📊 Métricas de Rendimiento")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Accuracy", "52%", delta="vs 33% baseline", delta_color="normal")
+        m2.metric("AUC Victoria", "0.76")
+        m3.metric("AUC Derrota", "0.77")
+        m4.metric("AUC Empate", "0.58")
+        m5.metric("Partidos train", "5.011")
+     
+        st.divider()
+     
+        # ─── ROW 1: ROC + Feature Importance ───
+        col_roc, col_fi = st.columns(2)
+     
+        # ── 1. CURVA ROC MULTICLASE ──
+        with col_roc:
+            st.markdown("#### Curva ROC Multiclase")
+     
+            roc_data = tech_data.get('roc_data', {})
+            roc_colors = {
+                'Victoria': '#10B981',
+                'Derrota':  '#EF4444',
+                'Empate':   '#94A3B8',
+            }
+     
+            fig_roc = go.Figure()
+     
+            # Diagonal de referencia
+            fig_roc.add_trace(go.Scatter(
+                x=[0, 1], y=[0, 1],
+                mode='lines',
+                line=dict(color='rgba(148,163,184,0.3)', width=1.5, dash='dot'),
+                showlegend=False, hoverinfo='skip'
+            ))
+     
+            for clase, color in roc_colors.items():
+                if clase in roc_data:
+                    d = roc_data[clase]
+                    auc_val = d['auc']
+                    fig_roc.add_trace(go.Scatter(
+                        x=d['fpr'], y=d['tpr'],
+                        fill='tozeroy',
+                        fillcolor=color.replace(')', ', 0.06)').replace('rgb', 'rgba') if 'rgb' in color else color,
+                        line=dict(color=color, width=2.5),
+                        name=f"{clase} (AUC = {auc_val:.2f})",
+                        hovertemplate=f"<b>{clase}</b><br>FPR: %{{x:.3f}}<br>TPR: %{{y:.3f}}<extra></extra>",
+                        showlegend=True,
+                    ))
+     
+            fig_roc.update_layout(**_base_layout(
+                title_text="<b>Curva ROC</b>  ·  Discriminación por clase",
+                height=400,
+                showlegend=True,
+                legend=dict(
+                    x=0.55, y=0.08,
+                    bgcolor='rgba(26,29,46,0.8)',
+                    bordercolor='rgba(99,102,241,0.2)',
+                    borderwidth=1,
+                    font=dict(size=12, color=COLORS['text']),
+                ),
+                xaxis=dict(title="Tasa de Falsos Positivos", range=[0, 1],
+                           tickformat='.0%', showgrid=True, gridcolor=COLORS['grid']),
+                yaxis=dict(title="Tasa de Verdaderos Positivos", range=[0, 1.02],
+                           tickformat='.0%', showgrid=True, gridcolor=COLORS['grid']),
+            ))
+            _add_watermark(fig_roc)
+            st.plotly_chart(fig_roc, use_container_width=True)
+     
+        # ── 2. FEATURE IMPORTANCE ──
+        with col_fi:
+            st.markdown("#### Feature Importance — XGBoost")
+     
+            fi = tech_data.get('feature_importances', {
+                'diff_ELO': 0.35, 'diff_MV': 0.24,
+                'diff_Pressure': 0.15, 'diff_Knockout': 0.13, 'diff_Momentum': 0.13
+            })
+     
+            feature_labels = {
+                'diff_ELO': 'ELO Diferencial',
+                'diff_MV': 'Market Value',
+                'diff_Pressure': 'Pressure Index',
+                'diff_Knockout': 'Knockout Perf.',
+                'diff_Momentum': 'Momentum 15',
+            }
+     
+            df_fi = pd.DataFrame([
+                {'feature': feature_labels.get(k, k), 'importance': v}
+                for k, v in fi.items()
+            ]).sort_values('importance', ascending=True)
+     
+            max_imp = df_fi['importance'].max()
+            fi_colors = [
+                f'rgba(99, {102 + int((v/max_imp)*120)}, 241, {0.5 + (v/max_imp)*0.5})'
+                for v in df_fi['importance']
+            ]
+     
+            fig_fi = go.Figure()
+            fig_fi.add_trace(go.Bar(
+                x=df_fi['importance'],
+                y=df_fi['feature'],
+                orientation='h',
+                marker=dict(color=fi_colors, cornerradius=6, line=dict(width=0)),
+                text=[f' {v*100:.1f}%' for v in df_fi['importance']],
+                textposition='outside',
+                textfont=dict(size=13, color=COLORS['text']),
+                hovertemplate='<b>%{y}</b><br>Importancia: %{x:.3f}<extra></extra>',
+            ))
+     
+            fig_fi.update_layout(**_base_layout(
+                title_text="<b>Importancia de Features</b>  ·  Gain score",
+                height=400,
+                xaxis=dict(
+                    title="Importancia relativa",
+                    range=[0, max_imp * 1.35],
+                    tickformat='.0%',
+                    showgrid=True, gridcolor=COLORS['grid'],
+                ),
+                yaxis=dict(showgrid=False, tickfont=dict(size=13, color=COLORS['text'])),
+                bargap=0.25,
+            ))
+            _add_watermark(fig_fi)
+            st.plotly_chart(fig_fi, use_container_width=True)
+     
+        st.divider()
+     
+        # ─── ROW 2: ELO histórico ───
+        st.markdown("#### Evolución ELO Histórica — Top 8 Selecciones (2010–2025)")
+     
+        elo_top8 = tech_data.get('elo_top8', {})
+     
+        if elo_top8:
+            equipos_disponibles = list(elo_top8.keys())
+            equipos_sel = st.multiselect(
+                "Selecciona selecciones:",
+                equipos_disponibles,
+                default=equipos_disponibles[:5],
+                key="elo_multisel"
+            )
+     
+            palette_elo = [
+                '#6366F1', '#10B981', '#F59E0B', '#EF4444',
+                '#8B5CF6', '#38BDF8', '#F97316', '#EC4899'
+            ]
+     
+            fig_elo = go.Figure()
+     
+            for i, eq in enumerate(equipos_sel):
+                d = elo_top8[eq]
+                color = palette_elo[i % len(palette_elo)]
+                flag = flags.get(eq, '')
+     
+                fig_elo.add_trace(go.Scatter(
+                    x=d['fechas'],
+                    y=d['elos'],
+                    mode='lines',
+                    name=f"{flag} {eq}",
+                    line=dict(color=color, width=2.2, shape='spline', smoothing=0.4),
+                    hovertemplate=(
+                        f"<b>{flag} {eq}</b><br>"
+                        "Fecha: %{x}<br>"
+                        "ELO: %{y:.0f}<extra></extra>"
+                    ),
+                ))
+     
+            fig_elo.add_vline(
+                x="2022-11-20", line_dash="dot",
+                line_color="rgba(245,158,11,0.4)", line_width=1.5,
+            )
+            fig_elo.add_annotation(
+                x="2022-11-20", y=1,
+                yref="paper",
+                text="Qatar 2022",
+                showarrow=False, yshift=10,
+                font=dict(size=10, color="rgba(245,158,11,0.7)"),
+                bgcolor="rgba(15,17,23,0.7)",
+                borderpad=3,
+            )
+     
+            fig_elo.update_layout(**_base_layout(
+                title_text="<b>Evolución del Rating ELO</b>  ·  Partidos oficiales e internacionales",
+                height=420,
+                showlegend=True,
+                legend=dict(
+                    orientation='h',
+                    x=0.5, y=-0.15,
+                    xanchor='center',
+                    bgcolor='rgba(26,29,46,0.0)',
+                    font=dict(size=12, color=COLORS['text']),
+                ),
+                xaxis=dict(title=None, showgrid=True, gridcolor=COLORS['grid'], tickformat='%Y'),
+                yaxis=dict(title="Rating ELO", showgrid=True, gridcolor=COLORS['grid']),
+                hovermode='x unified',
+            ))
+            _add_watermark(fig_elo)
+            st.plotly_chart(fig_elo, use_container_width=True)
+     
+        st.divider()
+     
+        # ─── ROW 3: Correlación + Radar + Distribución ───
+        col_corr, col_radar = st.columns(2)
+     
+        # ── 3. MATRIZ DE CORRELACIÓN ──
+        with col_corr:
+            st.markdown("#### Correlación entre Features")
+     
+            if os.path.exists('df_mundial.csv'):
+                df_mundial_local = pd.read_csv('df_mundial.csv')
+                feat_cols = ['ELO_norm', 'Log_MarketValue', 'Momentum_15', 'Knockout_Performance', 'Pressure_Index']
+                feat_labels = ['ELO', 'Market Val.', 'Momentum', 'Knockout', 'Pressure']
+         
+                corr_matrix = df_mundial_local[feat_cols].corr().values
+                mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+                corr_masked = np.where(mask, np.nan, corr_matrix)
+         
+                fig_corr = go.Figure(go.Heatmap(
+                    z=corr_masked,
+                    x=feat_labels, y=feat_labels,
+                    colorscale=[
+                        [0.0,  '#1E3A5F'], [0.25, '#2563EB'], [0.5,  '#1A1D2E'],
+                        [0.75, '#7C3AED'], [1.0,  '#6366F1']
+                    ],
+                    zmid=0, zmin=-1, zmax=1,
+                    text=[[f'{v:.2f}' if not np.isnan(v) else '' for v in row] for row in corr_masked],
+                    texttemplate='%{text}',
+                    textfont=dict(size=13, color='white', family='Inter'),
+                    hovertemplate='%{y} × %{x}<br>r = %{z:.3f}<extra></extra>',
+                    showscale=True,
+                ))
+         
+                fig_corr.update_layout(**_base_layout(
+                    title_text="<b>Matriz de Correlación</b>",
+                    height=380,
+                    xaxis=dict(showgrid=False, side='bottom'),
+                    yaxis=dict(showgrid=False, autorange='reversed'),
+                    margin=dict(t=64, b=40, l=80, r=40),
+                ))
+                _add_watermark(fig_corr)
+                st.plotly_chart(fig_corr, use_container_width=True)
+            else:
+                st.info("Sube 'df_mundial.csv' a la raíz para visualizar la matriz de correlación.")
+     
+        # ── 4. RADAR CHART ──
+        with col_radar:
+            st.markdown("#### Perfil de Selección — Radar Chart")
+     
+            if os.path.exists('df_mundial.csv'):
+                df_mundial_local = pd.read_csv('df_mundial.csv')
+                equipos_radar = df_mundial_local['name'].tolist()
+                eq_sel_1 = st.selectbox("Selección A:", equipos_radar, index=0, key="radar_eq1")
+                eq_sel_2 = st.selectbox("Selección B (comparar):", equipos_radar, index=min(1, len(equipos_radar)-1), key="radar_eq2")
+         
+                feat_radar = ['ELO_norm', 'Log_MarketValue', 'Momentum_15', 'Knockout_Performance', 'Pressure_Index']
+                feat_radar_labels = ['ELO', 'Market Value', 'Momentum', 'Knockout', 'Pressure']
+         
+                def get_radar_vals(equipo):
+                    row = df_mundial_local[df_mundial_local['name'] == equipo]
+                    if row.empty: return [0.5] * len(feat_radar)
+                    return [float(row[f].values[0]) for f in feat_radar]
+         
+                vals1 = get_radar_vals(eq_sel_1)
+                vals2 = get_radar_vals(eq_sel_2)
+         
+                fig_radar = go.Figure()
+                for eq, vals, color, flag_emoji in [
+                    (eq_sel_1, vals1, '#6366F1', flags.get(eq_sel_1, '')),
+                    (eq_sel_2, vals2, '#10B981', flags.get(eq_sel_2, '')),
+                ]:
+                    fig_radar.add_trace(go.Scatterpolar(
+                        r=vals + [vals[0]],
+                        theta=feat_radar_labels + [feat_radar_labels[0]],
+                        fill='toself',
+                        line=dict(color=color, width=2.5),
+                        name=f"{flag_emoji} {eq}",
+                    ))
+         
+                fig_radar.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(family='Inter, sans-serif', color=COLORS['text']),
+                    polar=dict(
+                        bgcolor='rgba(26,29,46,0.3)',
+                        radialaxis=dict(visible=True, range=[0, 1], gridcolor='rgba(148,163,184,0.12)', showticklabels=False),
+                        angularaxis=dict(tickfont=dict(size=11), gridcolor='rgba(148,163,184,0.12)'),
+                    ),
+                    showlegend=True,
+                    legend=dict(orientation='h', x=0.5, y=-0.15, xanchor='center'),
+                    height=380, margin=dict(t=30, b=60, l=40, r=40),
+                )
+                _add_watermark(fig_radar)
+                st.plotly_chart(fig_radar, use_container_width=True)
+            else:
+                st.info("Sube 'df_mundial.csv' a la raíz para visualizar el gráfico de radar.")
+     
+        st.divider()
+     
+        # ── 5. DISTRIBUCIÓN HISTÓRICA ──
+        st.markdown("<h4 style='text-align: center;'>Distribución Histórica de Resultados (2010–2025)</h4>", unsafe_allow_html=True)
+        if os.path.exists('df_train.csv'):
+            df_train_local = pd.read_csv('df_train.csv')
+            df_train_local['date'] = pd.to_datetime(df_train_local['date'])
+            df_train_local['year'] = df_train_local['date'].dt.year
+            df_train_local['resultado_label'] = df_train_local['resultado'].map(
+                {1: 'Victoria local', 0: 'Empate', -1: 'Derrota local'}
+            )
+     
+            df_anual = df_train_local.groupby(['year', 'resultado_label']).size().reset_index(name='count')
+            df_anual_total = df_train_local.groupby('year').size().reset_index(name='total')
+            df_anual = df_anual.merge(df_anual_total, on='year')
+            df_anual['pct'] = df_anual['count'] / df_anual['total'] * 100
+     
+            col_dist1, col_dist2 = st.columns(2)
+     
+            with col_dist1:
+                colores_resultado = {
+                    'Victoria local': '#10B981', 
+                    'Empate': '#6366F1', 
+                    'Derrota local': '#EF4444'
+                }
+                
+                fig_dist = go.Figure()
+                
+                # Transformamos las barras en líneas suaves (spline) mucho más legibles
+                for resultado, color in colores_resultado.items():
+                    df_r = df_anual[df_anual['resultado_label'] == resultado].sort_values('year')
+                    fig_dist.add_trace(go.Scatter(
+                        x=df_r['year'], 
+                        y=df_r['pct'], 
+                        name=resultado, 
+                        mode='lines+markers',
+                        line=dict(color=color, width=3, shape='spline', smoothing=0.3),
+                        marker=dict(size=6, line=dict(width=0)),
+                        hovertemplate=f"<b>{resultado}</b><br>Año: %{{x}}<br>Porcentaje: %{{y:.1f}}%<extra></extra>"
+                    ))
+         
+                fig_dist.update_layout(**_base_layout(
+                    title_text="<b>Tendencia de Resultados por Año</b>  ·  Fútbol Internacional", 
+                    height=340,
+                    xaxis=dict(
+                        title=None,
+                        showgrid=True, 
+                        gridcolor=COLORS['grid'],
+                        tickmode='linear',
+                        dtick=2 # Muestra etiquetas cada 2 años para no saturar
+                    ), 
+                    yaxis=dict(
+                        title="Porcentaje de partidos",
+                        ticksuffix='%',
+                        range=[0, 60], # Fija el rango para que no baile el gráfico
+                        showgrid=True, 
+                        gridcolor=COLORS['grid']
+                    ),
+                    legend=dict(
+                        orientation='h',
+                        x=0.5, y=-0.15,
+                        xanchor='center',
+                        bgcolor='rgba(0,0,0,0)'
+                    ),
+                    hovermode='x unified' # Al pasar el ratón, muestra los 3 valores a la vez
+                ))
+                _add_watermark(fig_dist)
+                st.plotly_chart(fig_dist, use_container_width=True)
+     
+            with col_dist2:
+                dist_global = df_train_local['resultado_label'].value_counts()
+                
+                # Creamos una lista de colores emparejada exactamente con el orden de las etiquetas
+                etiquetas_ordenadas = dist_global.index.tolist()
+                colores_mapeados = [colores_resultado[label] for label in etiquetas_ordenadas]
+                
+                fig_donut_dist = go.Figure(go.Pie(
+                    labels=etiquetas_ordenadas, 
+                    values=dist_global.values.tolist(), 
+                    hole=0.6, 
+                    marker=dict(
+                        colors=colores_mapeados, # ─── AQUÍ FORZAMOS LA CONSISTENCIA
+                        line=dict(color=COLORS['bg'], width=3) 
+                    ), 
+                    textinfo='percent+label',
+                    textposition='outside', 
+                    hovertemplate='<b>%{label}</b><br>Total: %{value} partidos<br>%{percent}<extra></extra>'
+                ))
+                
+                # Añadimos el texto central perfectamente centrado en el donut
+                fig_donut_dist.add_annotation(
+                    x=0.5, y=0.5,
+                    text=f"<b>{df_train_local.shape[0]:,}</b><br><span style='font-size:12px;color:#94A3B8'>Partidos</span>",
+                    font=dict(size=20, color=COLORS['text'], family='Inter, sans-serif'),
+                    showarrow=False, xref='paper', yref='paper',
+                    xanchor='center', yanchor='middle'
+                )
+                
+                fig_donut_dist.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', 
+                    height=340, 
+                    showlegend=False, 
+                    margin=dict(t=40, b=40, l=20, r=20)
+                )
+                _add_watermark(fig_donut_dist)
+                st.plotly_chart(fig_donut_dist, use_container_width=True)
