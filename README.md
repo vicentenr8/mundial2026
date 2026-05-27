@@ -25,8 +25,7 @@
   <a href="#-instalación">Instalación</a> •
   <a href="#-uso">Uso</a> •
   <a href="#-metodología">Metodología</a> •
-  <a href="#-estructura-del-proyecto">Estructura</a> •
-  <a href="#-roadmap">Roadmap</a>
+  <a href="#-estructura-del-proyecto">Estructura</a>
 </p>
 
 ---
@@ -240,18 +239,6 @@ SIM_MUNDIAL2026/
 | **Visualization** | Plotly 6.7 | Gráficos interactivos (graph_objects) |
 | **Web Framework** | Streamlit 1.57 | Dashboard interactivo con UI declarativa |
 | **Serialization** | Pickle | Persistencia de modelos y datos precomputados |
-
----
-
-## 🗺️ Roadmap
-
-- [ ] Deploy en Streamlit Cloud / HuggingFace Spaces
-- [ ] Añadir simulación en tiempo real con parámetros ajustables
-- [ ] Integrar datos de apuestas como feature adicional
-- [ ] Implementar backtesting con Qatar 2022
-- [ ] Añadir capturas de pantalla y GIFs al README
-- [ ] Exportar resultados a PDF interactivo
-- [ ] API REST para consultar predicciones programáticamente
 
 ---
 
