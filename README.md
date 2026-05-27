@@ -133,7 +133,7 @@ streamlit run app.py
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/<tu-usuario>/SIM_MUNDIAL2026.git
+git clone https://github.com/<vicentenr8>/SIM_MUNDIAL2026.git
 cd SIM_MUNDIAL2026
 
 # 2. Crear entorno virtual
